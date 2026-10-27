@@ -57,8 +57,10 @@ All helper files live in `~/.notchapp/`. The app sends nothing over the network:
 
 ## Credits
 
-Music data comes from [mediaremote-adapter](https://github.com/ungive/mediaremote-adapter) (its license is in `Sources/NotchApp/MediaControl/LICENSE`).
+Music data comes from [media-control](https://github.com/ungive/media-control) and [mediaremote-adapter](https://github.com/ungive/mediaremote-adapter) by Jonas van den Berg (BSD 3-Clause, license text in `Sources/NotchApp/MediaControl/LICENSE`).
+
+This is an independent project, not affiliated with Anthropic or Yandex. Claude and Yandex Music are mentioned only to describe compatibility; they are trademarks of their owners.
 
 ## License
 
-MIT. The bundled `MediaRemoteAdapter` keeps its own license.
+MIT. The bundled `media-control` and `MediaRemoteAdapter` keep their own license (BSD 3-Clause).

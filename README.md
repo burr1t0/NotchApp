@@ -57,8 +57,10 @@ scripts/install.sh
 
 ## Благодарности
 
-Данные о музыке берутся через [mediaremote-adapter](https://github.com/ungive/mediaremote-adapter) (лицензия лежит в `Sources/NotchApp/MediaControl/LICENSE`).
+Данные о музыке берутся через [media-control](https://github.com/ungive/media-control) и [mediaremote-adapter](https://github.com/ungive/mediaremote-adapter) Йонаса ван ден Берга (BSD 3-Clause, текст лицензии лежит в `Sources/NotchApp/MediaControl/LICENSE`).
+
+Проект независимый и не связан с Anthropic или Яндексом. Claude и Яндекс Музыка упоминаются только для описания совместимости, это товарные знаки их владельцев.
 
 ## Лицензия
 
-MIT. Лицензия включённого `MediaRemoteAdapter` остаётся прежней.
+MIT. Включённые `media-control` и `MediaRemoteAdapter` остаются под своей лицензией (BSD 3-Clause).
