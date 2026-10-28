@@ -4,7 +4,11 @@
 
 Утилита для macOS, которая живёт в вырезе (notch) MacBook. Наводишь курсор на вырез, и он раскрывается в панель. Свёрнутая, она почти не заметна и показывает эквалайзер, когда играет музыка.
 
-<!-- Сюда можно вставить демо: ![demo](docs/demo.gif) -->
+<p align="center">
+  <img src="docs/demo-music.gif" width="520" alt="Музыка"><br>
+  <img src="docs/demo-claude.gif" width="520" alt="Claude"><br>
+  <img src="docs/demo-tools.gif" width="520" alt="Буфер обмена и переводчик">
+</p>
 
 ## Возможности
 

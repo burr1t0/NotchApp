@@ -79,12 +79,26 @@ final class AudioLevelMonitor {
     /// Latest smoothed band levels, each 0...1. Cheap and thread-safe, meant
     /// to be polled once per frame by the UI.
     func currentLevels() -> [Float] {
+        if demoMode {
+            let t = Date().timeIntervalSinceReferenceDate
+            var result = [Float]()
+            for band in 0..<Self.bandCount {
+                let phase = Double(band)
+                let wave = abs(sin(t * (2.1 + phase * 0.85) + phase * 1.7))
+                result.append(Float(0.3 + 0.55 * wave))
+            }
+            return result
+        }
         levelsLock.lock()
         defer { levelsLock.unlock() }
         return levels
     }
 
+    /// Synthetic levels for recording the demo animation; no audio is touched.
+    var demoMode = false
+
     func start() {
+        guard !demoMode else { return }
         guard !running else { return }
         debugLogging = FileManager.default.fileExists(atPath: "/tmp/notchapp_audio_debug")
         guard createTapAndDevice() else {

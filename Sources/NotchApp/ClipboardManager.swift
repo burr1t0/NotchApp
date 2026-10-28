@@ -19,6 +19,11 @@ final class ClipboardManager: ObservableObject {
         lastChangeCount = pasteboard.changeCount
     }
 
+    /// Fills the history with sample entries for recording the demo animation.
+    func applyDemo(_ texts: [String]) {
+        items = texts.enumerated().map { ClipboardItem(text: $1, date: Date().addingTimeInterval(-Double($0) * 90)) }
+    }
+
     func start() {
         timer?.invalidate()
         timer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in

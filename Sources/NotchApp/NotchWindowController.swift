@@ -7,14 +7,14 @@ import SwiftUI
 /// fire spuriously while the panel's own frame is mid-animation, which is
 /// exactly what caused the flicker when hovering near the notch.
 final class NotchWindowController {
-    private var panel: NotchPanel!
-    private let viewModel = NotchViewModel()
-    private let clipboardManager = ClipboardManager()
-    private let screenshotWatcher = ScreenshotWatcher()
-    private let nowPlayingManager = NowPlayingManager()
-    private let audioMonitor = AudioLevelMonitor()
-    private let translatorManager = TranslatorManager()
-    private let claudeMonitor = ClaudeMonitor()
+    var panel: NotchPanel!
+    let viewModel = NotchViewModel()
+    let clipboardManager = ClipboardManager()
+    let screenshotWatcher = ScreenshotWatcher()
+    let nowPlayingManager = NowPlayingManager()
+    let audioMonitor = AudioLevelMonitor()
+    let translatorManager = TranslatorManager()
+    let claudeMonitor = ClaudeMonitor()
 
     private var notch: NSRect = .zero
     private var collapsedFrame: NSRect = .zero
@@ -85,10 +85,16 @@ final class NotchWindowController {
         let trackingView = HoverTrackingView(frame: NSRect(origin: .zero, size: collapsedFrame.size))
         trackingView.autoresizingMask = [.width, .height]
 
-        clipboardManager.start()
-        screenshotWatcher.start()
-        nowPlayingManager.start()
-        claudeMonitor.start()
+        // Demo recording runs on made-up data only: nothing real is started.
+        let demoDirectory = ProcessInfo.processInfo.environment["NOTCHAPP_DEMO"]
+        if demoDirectory == nil {
+            clipboardManager.start()
+            screenshotWatcher.start()
+            nowPlayingManager.start()
+            claudeMonitor.start()
+        } else {
+            audioMonitor.demoMode = true
+        }
 
         let content = ContentView(
             viewModel: viewModel,
@@ -161,8 +167,12 @@ final class NotchWindowController {
             .store(in: &cancellables)
 
         // Only hit-testing the cursor still needs a timer.
-        pollTimer = Timer.scheduledTimer(withTimeInterval: 0.05, repeats: true) { [weak self] _ in
-            self?.pollCursor()
+        if let demoDirectory {
+            startDemo(outputDirectory: URL(fileURLWithPath: demoDirectory))
+        } else {
+            pollTimer = Timer.scheduledTimer(withTimeInterval: 0.05, repeats: true) { [weak self] _ in
+                self?.pollCursor()
+            }
         }
     }
 
@@ -302,7 +312,7 @@ final class NotchWindowController {
                                                 options: [.urlReadingFileURLsOnly: true])
     }
 
-    private func expand(forFileDrag: Bool = false) {
+    func expand(forFileDrag: Bool = false) {
         collapseWorkItem?.cancel()
         collapseWorkItem = nil
         guard !isExpanded else { return }
@@ -313,7 +323,7 @@ final class NotchWindowController {
         animate(to: expandedFrame)
     }
 
-    private func scheduleCollapse() {
+    func scheduleCollapse() {
         let workItem = DispatchWorkItem { [weak self] in
             guard let self else { return }
             self.collapseWorkItem = nil

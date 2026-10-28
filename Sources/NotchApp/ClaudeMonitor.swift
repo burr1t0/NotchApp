@@ -136,6 +136,12 @@ final class ClaudeMonitor: ObservableObject {
         keepAwake = UserDefaults.standard.bool(forKey: "claudeKeepAwake")
     }
 
+    /// Feeds a hook payload in directly, bypassing the socket (demo recording).
+    func ingest(_ json: [String: Any], permission: Bool = false) {
+        guard let event = ClaudeEvent(json: json) else { return }
+        if permission { handlePermission(event, channel: nil) } else { handle(event) }
+    }
+
     func start() {
         server.onEvent = { [weak self] in self?.handle($0) }
         server.onPermissionRequest = { [weak self] in self?.handlePermission($0, channel: $1) }
@@ -493,7 +499,7 @@ final class ClaudeMonitor: ObservableObject {
 
     // MARK: - Permission requests
 
-    private func handlePermission(_ event: ClaudeEvent, channel: ClaudePermissionChannel) {
+    private func handlePermission(_ event: ClaudeEvent, channel: ClaudePermissionChannel?) {
         let isChatConfirm = event.name == "ChatConfirm"
         let project = isChatConfirm ? (event.chatTitle ?? "Чат Claude") : Self.projectName(event.cwd)
         let toolName = isChatConfirm ? "notch_confirm" : (event.toolName ?? "инструмент")

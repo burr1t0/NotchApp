@@ -4,7 +4,11 @@
 
 A macOS utility that lives in the MacBook notch. Hover over the notch and it expands into a panel. Collapsed, it stays almost invisible and shows an equalizer while music plays.
 
-<!-- Demo goes here: ![demo](docs/demo.gif) -->
+<p align="center">
+  <img src="docs/demo-music.gif" width="520" alt="Music"><br>
+  <img src="docs/demo-claude.gif" width="520" alt="Claude"><br>
+  <img src="docs/demo-tools.gif" width="520" alt="Clipboard and translator">
+</p>
 
 ## Features
 

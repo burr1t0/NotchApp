@@ -53,6 +53,19 @@ final class NowPlayingManager: ObservableObject {
             .appendingPathComponent("MediaControl/bin/media-control")
     }
 
+    /// Fills in a fixed track for recording the demo animation.
+    func applyDemo(title: String, artist: String, artwork: NSImage, duration: Double, elapsed: Double) {
+        self.title = title
+        self.artist = artist
+        self.artwork = artwork
+        self.duration = duration
+        displayedElapsed = elapsed
+        isPlaying = true
+        isAvailable = true
+    }
+
+    func setDemoElapsed(_ seconds: Double) { displayedElapsed = seconds }
+
     func start() {
         // A previous instance that was killed (reinstall, crash) leaves its
         // adapter process running as an orphan — it would keep streaming
