@@ -1,5 +1,5 @@
 #!/bin/bash
-# Renders docs/promo.mp4 (and a short docs/promo-preview.gif) with Remotion
+# Renders docs/promo.mp4 with Remotion
 # from frames recorded by the app's demo mode. Needs NotchApp installed
 # (scripts/install.sh), Node.js and ffmpeg. The running app is closed for the
 # recording (the demo uses made-up data) and relaunched afterwards.
@@ -27,8 +27,4 @@ cd "$ROOT/promo"
 mkdir -p "$ROOT/docs"
 npm run render
 
-# A short, lightweight taste of it for the README
-ffmpeg -v error -y -ss 2.6 -t 9 -i "$ROOT/docs/promo.mp4" \
-  -vf "fps=25,scale=720:-1:flags=lanczos,split[a][b];[a]palettegen=max_colors=200:stats_mode=diff[p];[b][p]paletteuse=dither=bayer:bayer_scale=3:diff_mode=rectangle" \
-  -loop 0 "$ROOT/docs/promo-preview.gif"
-echo "wrote docs/promo.mp4 and docs/promo-preview.gif"
+echo "wrote docs/promo.mp4"
