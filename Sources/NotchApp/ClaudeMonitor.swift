@@ -78,8 +78,13 @@ struct ClaudePermissionRequest: Identifiable {
     /// A question from a regular chat's `notch_confirm` tool, answered with
     /// the chosen option rather than a hook decision.
     var isChatConfirm = false
-    fileprivate let channel: ClaudePermissionChannel
+    /// For the desktop app's end-of-turn card (`wrap_up`): the text each
+    /// button sends into the chat, by button label. There's no hook decision
+    /// to give, so the answer is typed into the chat instead.
+    var wrapUpMessages: [String: String]?
+    fileprivate let channel: ClaudePermissionChannel?
 
+    var isWrapUp: Bool { wrapUpMessages != nil }
     var isQuestion: Bool { questions != nil }
     var isPlan: Bool { if case .plan = preview { return true } else { return false } }
     /// Questions and plans need more room than the peek drop-down offers.
@@ -201,7 +206,11 @@ final class ClaudeMonitor: ObservableObject {
         // Any later activity from a session means its prompt was answered
         // elsewhere (Claude's own UI) or abandoned — stop offering it here.
         if event.name != "Notification", event.name != "SessionStart" {
-            dropPending(forSession: event.sessionID, answering: nil)
+            // A wrap-up card outlives the turn that raised it (Stop follows
+            // right away); only the user's next message or the end of the
+            // session settles it.
+            dropPending(forSession: event.sessionID, answering: nil,
+                        includingWrapUps: event.name == "UserPromptSubmit" || event.name == "SessionEnd")
         }
 
         if event.name == "SessionEnd" {
@@ -279,8 +288,13 @@ final class ClaudeMonitor: ObservableObject {
                 session.startedAt = session.startedAt ?? Date()
             }
         case "Stop":
-            session.state = .done
-            session.detail = "Готово"
+            if pending.contains(where: { $0.sessionID == session.id && $0.isWrapUp }) {
+                session.state = .waiting
+                session.detail = "Задаёт вопрос"
+            } else {
+                session.state = .done
+                session.detail = "Готово"
+            }
         default:
             return
         }
@@ -293,6 +307,10 @@ final class ClaudeMonitor: ObservableObject {
         sessions.sort { $0.updated > $1.updated }
 
         estimateContext(for: session)
+
+        if event.name == "PreToolUse", event.toolName?.hasSuffix("wrap_up") == true {
+            presentWrapUp(event, project: session.project)
+        }
 
         let becameWaiting = session.state == .waiting && previous != .waiting
         let becameDone = session.state == .done && previous != .done
@@ -530,6 +548,43 @@ final class ClaudeMonitor: ObservableObject {
         }
     }
 
+    /// The desktop app's own end-of-turn card (`ccd_turn__wrap_up`) carries a
+    /// question and buttons, each with the text it would send. It isn't a
+    /// permission prompt, so the hook only sees it as an ordinary tool call.
+    private func presentWrapUp(_ event: ClaudeEvent, project: String) {
+        let input = event.toolInput ?? [:]
+        guard let ask = (input["ask"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines), !ask.isEmpty,
+              let actions = input["actions"] as? [[String: Any]] else { return }
+        var messages: [String: String] = [:]
+        var labels: [String] = []
+        for action in actions {
+            guard let label = action["label"] as? String else { continue }
+            labels.append(label)
+            messages[label] = (action["message"] as? String) ?? label
+        }
+        guard !labels.isEmpty else { return }
+
+        var request = ClaudePermissionRequest(
+            sessionID: event.sessionID,
+            project: project,
+            toolName: "wrap_up",
+            detail: "",
+            toolInput: input,
+            questions: [.init(text: ask, options: Array(labels.prefix(4)))],
+            preview: .generic("wrap_up"),
+            channel: nil)
+        request.wrapUpMessages = messages
+        dropPending(forSession: event.sessionID, answering: nil)
+        pending.append(request)
+        play("Ping")
+        refreshIndicator()
+
+        let id = request.id
+        DispatchQueue.main.asyncAfter(deadline: .now() + 15 * 60) { [weak self] in
+            self?.expire(id)
+        }
+    }
+
     private static func makePreview(toolName: String, input: [String: Any], detail: String?) -> ClaudePreview {
         func lines(_ text: String?) -> [String] {
             (text ?? "").split(separator: "\n", omittingEmptySubsequences: true)
@@ -592,12 +647,31 @@ final class ClaudeMonitor: ObservableObject {
             guard pending.contains(where: { $0.id == request.id }) else { return }
             pending.removeAll { $0.id == request.id }
             let choice = answers.values.first ?? ""
-            request.channel.reply(["choice": choice])
+            request.channel?.reply(["choice": choice])
             // The chat carries on with the answer; nothing else will tell us.
             if let index = sessions.firstIndex(where: { $0.id == request.sessionID }) {
                 sessions[index].state = .working
                 sessions[index].detail = "Ответ получен: \(choice)"
                 sessions[index].updated = Date()
+            }
+            refreshIndicator()
+            return
+        }
+        if let messages = request.wrapUpMessages {
+            guard pending.contains(where: { $0.id == request.id }) else { return }
+            pending.removeAll { $0.id == request.id }
+            let choice = answers.values.first ?? ""
+            let text = messages[choice] ?? choice   // typed free text goes as it is
+            if let index = sessions.firstIndex(where: { $0.id == request.sessionID }) {
+                sessions[index].state = .working
+                sessions[index].detail = "Отправляю ответ: \(choice)"
+                sessions[index].updated = Date()
+                send(text, to: sessions[index]) { [weak self] error in
+                    guard let self, let error,
+                          let index = self.sessions.firstIndex(where: { $0.id == request.sessionID }) else { return }
+                    self.sessions[index].state = .waiting
+                    self.sessions[index].detail = error
+                }
             }
             refreshIndicator()
             return
@@ -610,7 +684,7 @@ final class ClaudeMonitor: ObservableObject {
     private func answer(_ request: ClaudePermissionRequest, decision: [String: Any]) {
         guard pending.contains(where: { $0.id == request.id }) else { return }
         pending.removeAll { $0.id == request.id }
-        request.channel.reply([
+        request.channel?.reply([
             "hookSpecificOutput": [
                 "hookEventName": "PermissionRequest",
                 "decision": decision,
@@ -627,15 +701,16 @@ final class ClaudeMonitor: ObservableObject {
     private func expire(_ id: UUID) {
         guard let request = pending.first(where: { $0.id == id }) else { return }
         pending.removeAll { $0.id == id }
-        request.channel.reply(nil)
+        request.channel?.reply(nil)
         refreshIndicator()
     }
 
-    private func dropPending(forSession sessionID: String, answering reply: [String: Any]?) {
-        let stale = pending.filter { $0.sessionID == sessionID }
+    private func dropPending(forSession sessionID: String, answering reply: [String: Any]?,
+                             includingWrapUps: Bool = true) {
+        let stale = pending.filter { $0.sessionID == sessionID && (includingWrapUps || !$0.isWrapUp) }
         guard !stale.isEmpty else { return }
-        pending.removeAll { $0.sessionID == sessionID }
-        stale.forEach { $0.channel.reply(reply) }
+        pending.removeAll { request in stale.contains { $0.id == request.id } }
+        stale.forEach { $0.channel?.reply(reply) }
     }
 
     /// Claude's "waiting for your input" nudge after a minute of idleness
