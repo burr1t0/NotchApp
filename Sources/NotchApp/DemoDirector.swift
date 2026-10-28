@@ -255,7 +255,7 @@ final class DemoRecorder {
         self.directory = directory
         self.shape = shape
         try? FileManager.default.removeItem(at: directory)
-        try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        try? FileManager.default.createDirectory(at: directory.appendingPathComponent("panel"), withIntermediateDirectories: true)
     }
 
     func capture(frame: Int) {
@@ -264,11 +264,18 @@ final class DemoRecorder {
         view.cacheDisplay(in: view.bounds, to: snapshot)
         let size = view.bounds.size
         let shape = shape()
-        let url = directory.appendingPathComponent(String(format: "%05d.png", frame))
+        let name = String(format: "%05d.png", frame)
+        let url = directory.appendingPathComponent(name)
+        let panelURL = directory.appendingPathComponent("panel").appendingPathComponent(name)
         backlog.wait()
         queue.async(group: group) { [backlog] in
-            if let data = Self.compose(snapshot, size: size, shape: shape).representation(using: .png, properties: [:]) {
+            // On the stand-in desktop (for the GIFs), and on its own with
+            // transparency (for the promo video, which supplies its own backdrop).
+            if let data = Self.compose(snapshot, size: size, shape: shape, desktop: true).representation(using: .png, properties: [:]) {
                 try? data.write(to: url)
+            }
+            if let data = Self.compose(snapshot, size: size, shape: shape, desktop: false).representation(using: .png, properties: [:]) {
+                try? data.write(to: panelURL)
             }
             backlog.signal()
         }
@@ -283,7 +290,7 @@ final class DemoRecorder {
 
     /// The panel's frame hung from the top of a stand-in desktop.
     private static func compose(_ snapshot: NSBitmapImageRep, size: NSSize,
-                                shape: (top: CGFloat, bottom: CGFloat, glow: CGFloat)) -> NSBitmapImageRep {
+                                shape: (top: CGFloat, bottom: CGFloat, glow: CGFloat), desktop: Bool) -> NSBitmapImageRep {
         let rep = NSBitmapImageRep(
             bitmapDataPlanes: nil, pixelsWide: Int(canvas.width * 2), pixelsHigh: Int(canvas.height * 2),
             bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
@@ -291,7 +298,7 @@ final class DemoRecorder {
         rep.size = canvas
         NSGraphicsContext.saveGraphicsState()
         NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: rep)
-        drawDesktop()
+        if desktop { drawDesktop() }
 
         let target = NSRect(x: (canvas.width - size.width) / 2, y: canvas.height - size.height,
                             width: size.width, height: size.height)

@@ -5,7 +5,8 @@
 A macOS utility that lives in the MacBook notch. Hover over the notch and it expands into a panel. Collapsed, it stays almost invisible and shows an equalizer while music plays.
 
 <p align="center">
-  <img src="docs/demo.gif" width="720" alt="NotchApp overview">
+  <a href="docs/promo.mp4"><img src="docs/promo-preview.gif" width="720" alt="NotchApp overview"></a><br>
+  <a href="docs/promo.mp4">Watch the full video (MP4)</a>
 </p>
 
 ## Features

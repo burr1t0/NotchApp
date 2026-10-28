@@ -13,3 +13,8 @@ NotchApp.xcodeproj/
 Sources/NotchApp/Info.plist
 Sources/NotchApp/NotchApp.entitlements
 skills/*.zip
+
+# Promo video: frames come from scripts/make-promo.sh
+promo/node_modules/
+promo/public/
+promo/out/

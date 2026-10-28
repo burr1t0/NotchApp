@@ -19,7 +19,7 @@ open "$APP"
 
 mkdir -p "$ROOT/docs"
 # name  start  end   (seconds into the tour)
-for cut in "demo 0 37" "demo-music 1.2 8" "demo-claude 7 23.5" "demo-tools 23.5 36.6"; do
+for cut in "demo-music 1.2 8" "demo-claude 7 23.5" "demo-tools 23.5 36.6"; do
   set -- $cut
   ffmpeg -v error -y -framerate $FPS -start_number "$(printf '%.0f' "$(echo "$2 * $FPS" | bc)")" \
     -i "$OUT/%05d.png" -t "$(echo "$3 - $2" | bc)" \

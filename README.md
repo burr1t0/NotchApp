@@ -5,7 +5,8 @@
 Утилита для macOS, которая живёт в вырезе (notch) MacBook. Наводишь курсор на вырез, и он раскрывается в панель. Свёрнутая, она почти не заметна и показывает эквалайзер, когда играет музыка.
 
 <p align="center">
-  <img src="docs/demo.gif" width="720" alt="NotchApp: обзор">
+  <a href="docs/promo.mp4"><img src="docs/promo-preview.gif" width="720" alt="NotchApp: обзор"></a><br>
+  <a href="docs/promo.mp4">Смотреть полное видео (MP4)</a>
 </p>
 
 ## Возможности
