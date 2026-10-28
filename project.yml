@@ -28,6 +28,7 @@ targets:
         CFBundleShortVersionString: "0.1"
         CFBundleVersion: "1"
         LSUIElement: true
+        CFBundleIconFile: AppIcon
         LSMinimumSystemVersion: "15.0"
         NSHumanReadableCopyright: ""
         NSAudioCaptureUsageDescription: "NotchApp измеряет громкость играющего звука, чтобы эквалайзер у выреза двигался в такт музыке. Звук не записывается и никуда не отправляется."
