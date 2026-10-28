@@ -82,3 +82,9 @@ scripts/install.sh
 ## Лицензия
 
 MIT. Включённые `media-control` и `MediaRemoteAdapter` остаются под своей лицензией (BSD 3-Clause).
+
+
+
+https://github.com/user-attachments/assets/722a7192-80ab-436c-81ed-118ec454bda8
+
+
