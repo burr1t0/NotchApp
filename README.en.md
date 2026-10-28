@@ -1,3 +1,5 @@
+<p align="center"><img src="docs/icon.png" width="128" alt="NotchApp"></p>
+
 <h1 align="center">NotchApp</h1>
 
 <p align="center">
@@ -6,7 +8,7 @@
 </p>
 
 <p align="center">
-  <a href="README.md">🇷🇺 Русский</a> · 🇬🇧 English
+  <a href="README.md">Русский</a> · English
 </p>
 
 <p align="center">
@@ -29,11 +31,11 @@ The idea: **everything you'd normally hunt for across windows is within reach** 
 
 | Tab | What for |
 |---|---|
-| 🎵 **Music** | What's playing, controls, seeking, an equalizer |
-| 🤖 **Claude** | All Claude sessions and chats, permission prompts and questions answered right from the notch |
-| 📁 **Files** | Screenshots and a "shelf" for files you need to move somewhere |
-| 📋 **Clipboard** | History of copied text |
-| 🌐 **Translate** | Quick RU ↔ EN translation |
+| <img src="docs/icons/music.svg" width="22" height="22" align="absmiddle"> **Music** | What's playing, controls, seeking, an equalizer |
+| <img src="docs/icons/claude.svg" width="22" height="22" align="absmiddle"> **Claude** | All Claude sessions and chats, permission prompts and questions answered right from the notch |
+| <img src="docs/icons/files.svg" width="22" height="22" align="absmiddle"> **Files** | Screenshots and a "shelf" for files you need to move somewhere |
+| <img src="docs/icons/clipboard.svg" width="22" height="22" align="absmiddle"> **Clipboard** | History of copied text |
+| <img src="docs/icons/translate.svg" width="22" height="22" align="absmiddle"> **Translate** | Quick RU ↔ EN translation |
 
 ---
 
@@ -49,7 +51,7 @@ The panel closes by itself when the cursor leaves, and **stays open while it's w
 
 ---
 
-## 🎵 Music
+## <img src="docs/icons/music.svg" width="30" height="30" align="absmiddle"> Music
 
 <p align="center"><img src="docs/demo-music.gif" width="680" alt="Music tab"></p>
 
@@ -62,7 +64,7 @@ Works with **any player**: Yandex Music, Spotify, Apple Music, browser tabs. All
 
 ---
 
-## 🤖 Claude
+## <img src="docs/icons/claude.svg" width="30" height="30" align="absmiddle"> Claude
 
 <p align="center"><img src="docs/demo-claude.gif" width="680" alt="Claude tab"></p>
 
@@ -117,11 +119,11 @@ When an answer is needed, an orange glow lights up softly under the notch and a 
 
 ---
 
-## 🧰 Files, clipboard and translator
+## Files, clipboard and translator
 
 <p align="center"><img src="docs/demo-tools.gif" width="680" alt="Files, clipboard and translator"></p>
 
-### 📁 Files
+### <img src="docs/icons/files.svg" width="24" height="24" align="absmiddle"> Files
 
 The tab has two parts: a **file shelf** and **screenshots**.
 
@@ -129,11 +131,11 @@ The tab has two parts: a **file shelf** and **screenshots**.
 - **Get it back out:** click a file to open it, or drag it into any app. Right-click: "Open", "Show in Finder", "Remove from shelf". The cross on hover removes a file from the shelf.
 - **Screenshots:** the latest ones show as thumbnails. Works both when screenshots are saved to a folder and when they go to the clipboard. Click one to open it (or copy it back to the clipboard), or drag it into a message, chat or document.
 
-### 📋 Clipboard
+### <img src="docs/icons/clipboard.svg" width="24" height="24" align="absmiddle"> Clipboard
 
 History of copied text: up to 50 entries, newest first, no duplicates. Click a row and the text is back on the clipboard (a check flashes). The copy time sits beside it.
 
-### 🌐 Translate
+### <img src="docs/icons/translate.svg" width="24" height="24" align="absmiddle"> Translate
 
 - Two columns, **RU** and **EN**. Type in either; the translation appears in the other a moment after you pause. The direction follows the column you're typing in.
 - The **copy** button puts the translation on the clipboard, the **clear** button resets both fields.
