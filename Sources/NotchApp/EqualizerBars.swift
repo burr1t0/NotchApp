@@ -47,7 +47,7 @@ final class EqualizerLayerView: NSView {
     private let barSpacing: CGFloat = 2
     private let maxHeight: CGFloat = 16
     private let restingLevel: CGFloat = 0.18
-    private static let tickInterval: TimeInterval = 1.0 / 24.0
+    static var tickInterval: TimeInterval = 1.0 / 24.0
     /// Last heights pushed to the layers; lets `apply` skip a commit when
     /// nothing visibly changed (silence, steady tones).
     private var lastHeights = [CGFloat](repeating: -1, count: AudioLevelMonitor.bandCount)

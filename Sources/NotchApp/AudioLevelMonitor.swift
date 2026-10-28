@@ -80,12 +80,19 @@ final class AudioLevelMonitor {
     /// to be polled once per frame by the UI.
     func currentLevels() -> [Float] {
         if demoMode {
-            let t = Date().timeIntervalSinceReferenceDate
+            // A made-up groove (120 bpm kick plus slower, offset bands) on the
+            // recording's own clock, so every frame is reproducible.
+            let t = DemoClock.levelTime
             var result = [Float]()
             for band in 0..<Self.bandCount {
                 let phase = Double(band)
-                let wave = abs(sin(t * (2.1 + phase * 0.85) + phase * 1.7))
-                result.append(Float(0.3 + 0.55 * wave))
+                let swell = 0.5 + 0.5 * sin(t * (1.3 + phase * 0.55) + phase * 2.1)
+                var level = 0.22 + 0.5 * swell
+                if band < 2 {
+                    let kick = max(0, sin(t * 2 * Double.pi * 2 + phase))
+                    level += 0.3 * kick * kick
+                }
+                result.append(Float(min(level, 1)))
             }
             return result
         }

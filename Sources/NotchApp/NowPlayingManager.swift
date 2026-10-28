@@ -65,6 +65,7 @@ final class NowPlayingManager: ObservableObject {
     }
 
     func setDemoElapsed(_ seconds: Double) { displayedElapsed = seconds }
+    func setDemoPlaying(_ playing: Bool) { isPlaying = playing }
 
     func start() {
         // A previous instance that was killed (reinstall, crash) leaves its
@@ -85,7 +86,8 @@ final class NowPlayingManager: ObservableObject {
     /// every 0.3s, which re-renders SwiftUI for a value nobody can see.
     var wantsElapsedUpdates = false {
         didSet {
-            guard wantsElapsedUpdates != oldValue else { return }
+            // (A demo recording sets the time itself, frame by frame.)
+            guard wantsElapsedUpdates != oldValue, DemoClock.shared == nil else { return }
             if wantsElapsedUpdates {
                 tickInterpolatedElapsed()   // fresh value the moment it's shown
                 uiTimer = Timer.scheduledTimer(withTimeInterval: 0.3, repeats: true) { [weak self] _ in

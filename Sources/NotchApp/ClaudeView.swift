@@ -493,7 +493,8 @@ private struct PulsingDot: NSViewRepresentable {
         pulse.duration = 0.8
         pulse.autoreverses = true
         pulse.repeatCount = .infinity
-        view.layer?.add(pulse, forKey: "pulse")
+        // (Demo recordings step through their own clock, so the dot stays put.)
+        if DemoClock.shared == nil { view.layer?.add(pulse, forKey: "pulse") }
         return view
     }
 

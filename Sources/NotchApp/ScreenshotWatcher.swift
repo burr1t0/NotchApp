@@ -60,6 +60,12 @@ final class ScreenshotWatcher: ObservableObject {
         lastClipboardChangeCount = NSPasteboard.general.changeCount
     }
 
+    /// Fills the shelf with sample entries for recording the demo animation.
+    func applyDemo(items: [ScreenshotItem], files: [ShelfFile]) {
+        self.items = items
+        self.files = files
+    }
+
     func start() {
         if let watchedDirectory {
             rescanDirectory(watchedDirectory)

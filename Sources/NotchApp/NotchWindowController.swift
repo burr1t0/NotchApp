@@ -335,10 +335,19 @@ final class NotchWindowController {
             self.animate(to: self.collapsedFrame)
         }
         collapseWorkItem = workItem
-        DispatchQueue.main.asyncAfter(deadline: .now() + collapseDelay, execute: workItem)
+        DispatchQueue.main.asyncAfter(deadline: .now() + (DemoClock.shared == nil ? collapseDelay : 0.02), execute: workItem)
     }
 
     private func setGlow(_ on: Bool) {
+        if let clock = DemoClock.shared, on {
+            // In a demo recording the glow waits for the panel to finish moving.
+            clock.whenSettled { [weak self] in self?.applyGlow(true) }
+            return
+        }
+        applyGlow(on)
+    }
+
+    private func applyGlow(_ on: Bool) {
         glowActive = on
         viewModel.glowMargin = on ? glowMargin : 0
         // Instant, not animated: the content shrinks/grows its pill by the
@@ -347,6 +356,10 @@ final class NotchWindowController {
         // resize animation still in flight (a plain setFrame loses to it and
         // the window ends up at the stale size, leaving a stub below the pill).
         let base = isExpanded ? expandedFrame : isPeeking ? peekFrame : collapsedFrame
+        if let clock = DemoClock.shared {
+            clock.retarget(framed(base))
+            return
+        }
         NSAnimationContext.runAnimationGroup { context in
             context.duration = 0
             panel.animator().setFrame(framed(base), display: true)
@@ -361,6 +374,10 @@ final class NotchWindowController {
 
     private func animate(to frame: NSRect) {
         let frame = framed(frame)
+        if let clock = DemoClock.shared {
+            clock.animate(to: frame)
+            return
+        }
         // Deliberately plain — an overshoot curve here animates x/y/width/
         // height as four independent values, and since collapsed↔collapsed
         // width changes (for the music indicator) are centered on the

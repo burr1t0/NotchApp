@@ -5,22 +5,35 @@
 A macOS utility that lives in the MacBook notch. Hover over the notch and it expands into a panel. Collapsed, it stays almost invisible and shows an equalizer while music plays.
 
 <p align="center">
-  <img src="docs/demo-music.gif" width="520" alt="Music"><br>
-  <img src="docs/demo-claude.gif" width="520" alt="Claude"><br>
-  <img src="docs/demo-tools.gif" width="520" alt="Clipboard and translator">
+  <img src="docs/demo.gif" width="720" alt="NotchApp overview">
 </p>
 
 ## Features
 
-- **Music.** Title, artwork, seeking and playback controls for any player, including Yandex Music. An equalizer by the notch moves with the audio.
-- **Claude.** Tracks Claude Code sessions and chats in the Claude desktop app:
-  - working status, action count, timer and context usage;
-  - permission prompts and questions with buttons can be answered right from the notch;
-  - plan progress (for example, 2 of 5);
-  - a panel drops down with a soft glow when an agent needs an answer.
+### Music
+
+Title, artwork, seeking and playback controls for any player, including Yandex Music. An equalizer by the notch moves with the audio.
+
+<p align="center"><img src="docs/demo-music.gif" width="640" alt="Music"></p>
+
+### Claude
+
+Tracks Claude Code sessions and chats in the Claude desktop app:
+
+- working status, action count, timer and context usage;
+- permission prompts and questions with buttons can be answered right from the notch;
+- plan progress (for example, 2 of 5);
+- a panel drops down with a soft glow when an agent needs an answer.
+
+<p align="center"><img src="docs/demo-claude.gif" width="640" alt="Claude"></p>
+
+### Files, clipboard and translator
+
 - **Files.** Screenshots and a temporary shelf: drop files into the panel and pick them up later.
 - **Clipboard.** History of what you copied.
 - **RU ↔ EN translator.** Uses the built-in macOS translation. Code identifiers in `camelCase` and `snake_case` are split into words before translating.
+
+<p align="center"><img src="docs/demo-tools.gif" width="640" alt="Files, clipboard and translator"></p>
 
 ## Requirements
 
