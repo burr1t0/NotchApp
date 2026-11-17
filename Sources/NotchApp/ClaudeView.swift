@@ -11,7 +11,7 @@ struct ClaudeView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            if !hooksInstalled {
+            if !hooksInstalled && !monitor.codexEnabled && monitor.sessions.isEmpty {
                 setupPrompt
             } else if let request = monitor.pending.first {
                 PermissionCard(monitor: monitor, request: request, more: monitor.pending.count - 1)
@@ -20,7 +20,7 @@ struct ClaudeView: View {
                 SessionDetail(monitor: monitor, session: session) { openedSessionID = nil }
             } else if monitor.sessions.isEmpty {
                 Spacer()
-                Text("Нет активных сессий Claude Code")
+                Text(monitor.codexEnabled ? monitor.codexStatus : "Нет активных сессий")
                     .font(.system(size: 11))
                     .foregroundStyle(.white.opacity(0.5))
                     .frame(maxWidth: .infinity)
@@ -37,7 +37,7 @@ struct ClaudeView: View {
                 }
             }
 
-            if hooksInstalled, openedSessionID == nil, monitor.pending.isEmpty { footer }
+            if openedSessionID == nil, monitor.pending.isEmpty { footer }
         }
         .onAppear { hooksInstalled = ClaudeHookInstaller.isInstalled }
         .onChange(of: needsKeyboard) { setKeyboard($0) }
@@ -91,12 +91,20 @@ struct ClaudeView: View {
                 Image(systemName: "cup.and.saucer.fill")
                     .foregroundStyle(monitor.keepAwake ? Color.claudeOrange : .white.opacity(0.4))
             }
-            .help(monitor.keepAwake ? "Мак не уснёт, пока Claude работает" : "Не давать Маку уснуть, пока Claude работает")
+            .help(monitor.keepAwake ? "Мак не уснёт, пока агент работает" : "Не давать Маку уснуть, пока агент работает")
 
             if monitor.fiveHourPercent != nil || monitor.sevenDayPercent != nil {
                 Text(limitsText)
                     .font(.system(size: 9, weight: .medium))
             }
+
+            Button {
+                monitor.codexEnabled.toggle()
+            } label: {
+                Text("Codex")
+                    .foregroundStyle(monitor.codexEnabled ? Color.cyan : Color.white.opacity(0.4))
+            }
+            .help(monitor.codexEnabled ? "Отключить локальные чаты Codex" : "Показывать локальные чаты Codex")
 
             Spacer()
 
@@ -107,9 +115,13 @@ struct ClaudeView: View {
                 .help("Показывать в шторке статус обычных чатов Claude")
             }
 
-            Button("Отключить") {
-                if ClaudeHookInstaller.uninstall() { hooksInstalled = false }
-                if ClaudeChatInstaller.uninstall() { chatsInstalled = false }
+            Button(hooksInstalled ? "− Claude" : "+ Claude") {
+                if hooksInstalled {
+                    if ClaudeHookInstaller.uninstall() { hooksInstalled = false }
+                    if ClaudeChatInstaller.uninstall() { chatsInstalled = false }
+                } else if ClaudeHookInstaller.installWithConfirmation() {
+                    hooksInstalled = ClaudeHookInstaller.isInstalled
+                }
             }
         }
         .buttonStyle(.plain)
@@ -330,10 +342,15 @@ private struct SessionRow: View {
                 .fill(color)
                 .frame(width: 7, height: 7)
             VStack(alignment: .leading, spacing: 1) {
-                Text(session.project)
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(.white)
-                    .lineLimit(1)
+                HStack(spacing: 5) {
+                    Text(session.project)
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(.white)
+                        .lineLimit(1)
+                    Text(session.isCodex ? "Codex" : "Claude")
+                        .font(.system(size: 8, weight: .medium))
+                        .foregroundStyle(session.isCodex ? Color.cyan : Color.claudeOrange)
+                }
                 Text(session.detail)
                     .font(.system(size: 10))
                     .foregroundStyle(.white.opacity(0.55))
@@ -388,7 +405,7 @@ private struct SessionRow: View {
 
     @ViewBuilder private var stats: some View {
         let hasContext = session.contextPercent != nil
-        if hasContext || session.toolCount > 0 || session.state == .working {
+        if hasContext || session.isCodex || session.toolCount > 0 || session.state == .working {
             HStack(spacing: 6) {
                 if let percent = session.contextPercent {
                     GeometryReader { geo in
@@ -400,6 +417,10 @@ private struct SessionRow: View {
                     }
                     .frame(width: 46, height: 3)
                     Text(contextLabel(percent))
+                        .help(session.contextWindow.map { "Доступный контекст: \($0) токенов" } ?? "Контекст")
+                }
+                if session.isCodex && session.contextPercent == nil {
+                    Text("Контекст: нет данных")
                 }
                 if session.toolCount > 0 {
                     Text("· \(session.toolCount) \(Self.actionsWord(session.toolCount))")
@@ -422,7 +443,7 @@ private struct SessionRow: View {
     private func contextLabel(_ percent: Double) -> String {
         guard let window = session.contextWindow else { return "\(Int(percent.rounded()))%" }
         let used = Int((Double(window) * percent / 100 / 1000).rounded())
-        return "\(Int(percent.rounded()))% · \(used)k"
+        return "\(Int(percent.rounded()))% · \(used)k/\(window / 1000)k"
     }
 
     private static func clock(_ seconds: TimeInterval) -> String {
@@ -524,7 +545,7 @@ private struct SessionDetail: View {
                     .font(.system(size: 11, weight: .semibold))
                     .lineLimit(1)
                 Spacer(minLength: 0)
-                Button("Открыть чат") { monitor.openChat(for: session) }
+                Button(session.isCodex ? "В Codex" : "Открыть чат") { monitor.openChat(for: session) }
                     .buttonStyle(.plain)
                     .font(.system(size: 10, weight: .medium))
                     .padding(.horizontal, 8).padding(.vertical, 3)
@@ -533,7 +554,7 @@ private struct SessionDetail: View {
             .foregroundStyle(.white)
 
             ScrollView {
-                Text(session.isChat ? (session.finalNote ?? session.detail) : (loaded ? (text ?? "Пока нет ответа") : "…"))
+                Text(session.isChat || session.isCodex ? (session.finalNote ?? session.detail) : (loaded ? (text ?? "Пока нет ответа") : "…"))
                     .font(.system(size: 10.5))
                     .foregroundStyle(.white.opacity(0.85))
                     .textSelection(.enabled)
@@ -543,7 +564,12 @@ private struct SessionDetail: View {
             .frame(maxHeight: .infinity)
             .background(RoundedRectangle(cornerRadius: 6).fill(Color.white.opacity(0.07)))
 
-            if !session.isChat {
+            if session.isCodex {
+                Text(session.codexModel ?? "Codex · локальный чат")
+                    .font(.system(size: 9))
+                    .foregroundStyle(.white.opacity(0.5))
+            }
+            if !session.isChat && !session.isCodex {
             HStack(spacing: 6) {
                 TextField("Написать Claude…", text: $draft)
                     .textFieldStyle(.plain)

@@ -17,7 +17,9 @@ struct ClaudeSession: Identifiable {
     var updated: Date
     /// Tool calls since the last prompt.
     var toolCount = 0
-    /// 0...100, from Claude Code's status-line payload.
+    var isCodex = false
+    var codexModel: String?
+    /// Current usage as a percentage of the session's reported window.
     var contextPercent: Double?
     var contextWindow: Int?
     var transcriptPath: String?
@@ -118,6 +120,22 @@ final class ClaudeMonitor: ObservableObject {
         didSet { UserDefaults.standard.set(soundsEnabled, forKey: "claudeSounds") }
     }
 
+    @Published var codexEnabled: Bool = UserDefaults.standard.object(forKey: "codexMonitoringEnabled") as? Bool ?? true {
+        didSet {
+            UserDefaults.standard.set(codexEnabled, forKey: "codexMonitoringEnabled")
+            if !codexEnabled { sessions.removeAll { $0.isCodex }; refreshIndicator() }
+            else { pollCodex() }
+        }
+    }
+    @Published private(set) var codexStatus = "Чтение локальных чатов Codex"
+    private let codexQueue = DispatchQueue(label: "notchapp.codex-reader", qos: .utility)
+    private let codexReader = CodexSessionReader(home: ProcessInfo.processInfo.environment["CODEX_HOME"]
+        .map { URL(fileURLWithPath: $0) }
+        ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".codex"))
+    private var codexTimer: Timer?
+    private var codexPolling = false
+    private var codexLoaded = false
+    private var dismissedCodex: [String: Date] = [:]
     private let server = ClaudeEventServer()
     private var finishedTimer: Timer?
     private var pruneTimer: Timer?
@@ -143,6 +161,8 @@ final class ClaudeMonitor: ObservableObject {
     }
 
     func start() {
+        pollCodex()
+        codexTimer = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in self?.pollCodex() }
         server.onEvent = { [weak self] in self?.handle($0) }
         server.onPermissionRequest = { [weak self] in self?.handlePermission($0, channel: $1) }
         server.start()
@@ -153,8 +173,63 @@ final class ClaudeMonitor: ObservableObject {
 
     /// Drops a session from the list by hand (it comes back if it reports again).
     func dismiss(_ session: ClaudeSession) {
+        if session.isCodex { dismissedCodex[session.id] = session.updated }
         sessions.removeAll { $0.id == session.id }
         refreshIndicator()
+    }
+
+    private func pollCodex() {
+        guard codexEnabled, !codexPolling else { return }
+        codexPolling = true
+        codexQueue.async { [weak self] in
+            guard let self else { return }
+            let snapshots = self.codexReader.scan()
+            DispatchQueue.main.async {
+                self.codexPolling = false
+                guard self.codexEnabled else { return }
+                self.applyCodex(snapshots)
+            }
+        }
+    }
+
+    private func applyCodex(_ snapshots: [CodexSessionSnapshot]) {
+        let previous = Dictionary(sessions.filter { $0.isCodex }.map { ($0.id, $0) },
+                                  uniquingKeysWith: { $0.updated >= $1.updated ? $0 : $1 })
+        var changedToDone = false
+        var changedToWaiting = false
+        let mapped = snapshots.compactMap { snapshot -> ClaudeSession? in
+            let id = "codex:" + snapshot.id
+            if let dismissed = dismissedCodex[id], snapshot.updated <= dismissed { return nil }
+            var session = ClaudeSession(id: id, project: snapshot.title, state: .idle,
+                                        detail: snapshot.detail, updated: snapshot.updated)
+            session.isCodex = true
+            session.codexModel = snapshot.model
+            session.toolCount = snapshot.toolCount
+            session.startedAt = snapshot.startedAt
+            session.finalNote = snapshot.lastMessage
+            session.contextWindow = snapshot.contextWindow
+            if let used = snapshot.contextUsed, let window = snapshot.contextWindow, window > 0 {
+                session.contextPercent = Double(used) / Double(window) * 100
+            }
+            switch snapshot.state {
+            case .working: session.state = .working
+            case .waiting: session.state = .waiting
+            case .done: session.state = .done
+            case .idle: session.state = .idle
+            }
+            if codexLoaded, let old = previous[id], Date().timeIntervalSince(snapshot.updated) < 30 {
+                changedToDone = changedToDone || (session.state == .done && old.state != .done)
+                changedToWaiting = changedToWaiting || (session.state == .waiting && old.state != .waiting)
+            }
+            return session
+        }
+        codexStatus = mapped.isEmpty ? "Нет недавних локальных чатов Codex" : "Локальные чаты Codex · обновление каждые 2 с"
+        let rawIDs = Set(snapshots.map { $0.id })
+        sessions = (sessions.filter { !$0.isCodex && !rawIDs.contains($0.id) } + mapped).sorted { $0.updated > $1.updated }
+        codexLoaded = true
+        refreshIndicator()
+        if changedToWaiting { play("Ping") }
+        else if changedToDone { flashFinished(); play("Glass") }
     }
 
     /// Keeps a session's task list in step with the agent's own, from the
@@ -193,12 +268,12 @@ final class ClaudeMonitor: ObservableObject {
     }
 
     private func updateKeepAwake() {
-        let shouldHold = keepAwake && sessions.contains { $0.state == .working || $0.state == .waiting }
+        let shouldHold = keepAwake && sessions.contains { $0.state == .working || (!$0.isCodex && $0.state == .waiting) }
         if shouldHold, awakeAssertion == 0 {
             IOPMAssertionCreateWithName(
                 kIOPMAssertPreventUserIdleSystemSleep as CFString,
                 IOPMAssertionLevel(kIOPMAssertionLevelOn),
-                "Claude Code is working" as CFString,
+                "An agent is working" as CFString,
                 &awakeAssertion)
         } else if !shouldHold, awakeAssertion != 0 {
             IOPMAssertionRelease(awakeAssertion)
@@ -208,7 +283,15 @@ final class ClaudeMonitor: ObservableObject {
 
     // MARK: - Events
 
+    private func isCodexEvent(_ event: ClaudeEvent) -> Bool {
+        let file = event.transcriptPath.map { ($0 as NSString).lastPathComponent } ?? ""
+        return file.hasPrefix("rollout-") || sessions.contains { $0.id == "codex:" + event.sessionID }
+    }
+
     private func handle(_ event: ClaudeEvent) {
+        // Imported Claude hooks can also fire in Codex. The read-only adapter
+        // owns these chats; don't duplicate them or route them to Claude.
+        guard !isCodexEvent(event) else { return }
         // Any later activity from a session means its prompt was answered
         // elsewhere (Claude's own UI) or abandoned — stop offering it here.
         if event.name != "Notification", event.name != "SessionStart" {
@@ -374,6 +457,7 @@ final class ClaudeMonitor: ObservableObject {
     /// The final text of the session's most recent assistant turn, read from
     /// its transcript (off the main thread; the completion runs on main).
     func lastMessage(for session: ClaudeSession, completion: @escaping (String?) -> Void) {
+        if session.isCodex { completion(session.finalNote); return }
         guard let path = session.transcriptPath else { completion(nil); return }
         DispatchQueue.global(qos: .userInitiated).async {
             let text = Self.lastAssistantText(inTranscript: path)
@@ -408,6 +492,12 @@ final class ClaudeMonitor: ObservableObject {
     /// each session under its own `local_` id, which maps back to the CLI
     /// session id we receive in hooks. Falls back to just opening the app.
     func openChat(for session: ClaudeSession) {
+        if session.isCodex {
+            if let url = URL(string: "codex://threads/" + String(session.id.dropFirst("codex:".count))) {
+                NSWorkspace.shared.open(url)
+            }
+            return
+        }
         let root = FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent("Library/Application Support/Claude/claude-code-sessions")
         var localID: String?
@@ -436,6 +526,7 @@ final class ClaudeMonitor: ObservableObject {
     /// previous app back to the front afterwards. It only types if Claude
     /// really is in front, so keystrokes can't land in another app.
     func send(_ text: String, to session: ClaudeSession, completion: @escaping (String?) -> Void) {
+        guard !session.isCodex else { completion("Ответьте в приложении Codex"); return }
         let message = text.replacingOccurrences(of: "\n", with: " ").trimmingCharacters(in: .whitespaces)
         guard !message.isEmpty else { completion(nil); return }
 
@@ -500,6 +591,7 @@ final class ClaudeMonitor: ObservableObject {
     // MARK: - Permission requests
 
     private func handlePermission(_ event: ClaudeEvent, channel: ClaudePermissionChannel?) {
+        if isCodexEvent(event) { channel?.reply(nil); return }
         let isChatConfirm = event.name == "ChatConfirm"
         let project = isChatConfirm ? (event.chatTitle ?? "Чат Claude") : Self.projectName(event.cwd)
         let toolName = isChatConfirm ? "notch_confirm" : (event.toolName ?? "инструмент")
@@ -762,7 +854,7 @@ final class ClaudeMonitor: ObservableObject {
         let now = Date()
         // Chats have no end-of-session signal, so let them lapse sooner.
         let kept = sessions.filter {
-            now.timeIntervalSince($0.updated) < ($0.isChat ? Self.staleAfter / 3 : Self.staleAfter)
+            ($0.isCodex || now.timeIntervalSince($0.updated) < ($0.isChat ? Self.staleAfter / 3 : Self.staleAfter))
         }
         if kept.count != sessions.count {
             sessions = kept

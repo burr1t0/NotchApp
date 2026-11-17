@@ -2,7 +2,7 @@ import SwiftUI
 
 enum NotchTab: String, CaseIterable, Identifiable {
     case music = "Музыка"
-    case claude = "Claude"
+    case claude = "Агенты"
     case screenshots = "Файлы"
     case clipboard = "Буфер"
     case translate = "Перевод"
@@ -218,7 +218,7 @@ struct ContentView: View {
                 } label: {
                     Group {
                         if tab == .claude {
-                            ClaudeBot().frame(width: 19, height: 12)
+                            Image(systemName: "terminal").font(.system(size: 12, weight: .medium))
                         } else {
                             Image(systemName: tab.systemImage)
                                 .font(.system(size: 12, weight: .medium))
