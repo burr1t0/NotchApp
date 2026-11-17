@@ -10,8 +10,10 @@ defer { try? fm.removeItem(at: root) }
 let file = root.appendingPathComponent("sessions/2026/11/rollout-test.jsonl")
 let now = Date()
 let stamp = ISO8601DateFormatter().string(from: now)
-func record(_ type: String, _ payload: [String: Any], timestamp: String? = nil) -> Data {
-    var data = try! JSONSerialization.data(withJSONObject: ["timestamp": timestamp ?? stamp, "type": type, "payload": payload])
+func record(_ type: String, _ payload: [String: Any], timestamp: String? = nil, ordinal: Int? = nil) -> Data {
+    var json: [String: Any] = ["timestamp": timestamp ?? stamp, "type": type, "payload": payload]
+    if let ordinal { json["ordinal"] = ordinal }
+    var data = try! JSONSerialization.data(withJSONObject: json)
     data.append(10)
     return data
 }
@@ -99,13 +101,70 @@ try fm.removeItem(at: duplicateFile)
 check(reader.scan(now: now)[0].state == .done, "Removing a duplicate keeps the remaining rollout")
 try fm.removeItem(at: file)
 check(reader.scan(now: now).isEmpty, "Archived/deleted rollout disappears")
-print("PASS: rollout discovery, filtering, usage, partial lines, compaction, questions, titles, chunking, rotation, staleness, duplicate IDs, removal")
+// Real v2 workers have their own header followed by inherited parent headers
+// and history. Only records at/after historyStartOrdinal belong to the worker.
+func fixture(_ name: String, _ records: [Data]) throws -> URL {
+    let url = root.appendingPathComponent("sessions/" + name + ".jsonl")
+    try records.reduce(into: Data()) { $0.append($1) }.write(to: url)
+    return url
+}
+let parent = try fixture("parent", [
+    record("session_meta", ["id": "parent", "source": "vscode", "cwd": "/tmp/shared-project"]),
+    event("task_started"), event("task_complete")])
+let other = try fixture("other", [
+    record("session_meta", ["id": "other", "source": "vscode", "cwd": "/tmp/shared-project"]),
+    event("task_started")])
+let worker = try fixture("worker", [
+    record("session_meta", ["id": "worker", "session_id": "parent", "thread_source": "subagent",
+                            "parent_thread_id": "parent", "subagent_history_start_ordinal": 20,
+                            "agent_nickname": "Curie", "agent_path": "/root/check_tests",
+                            "source": ["subagent": ["thread_spawn": ["parent_thread_id": "parent"]]]], ordinal: 0),
+    record("session_meta", ["id": "parent", "source": "vscode", "cwd": "/tmp/wrong-project"], ordinal: 1),
+    record("event_msg", ["type": "task_started", "turn_id": "inherited"], ordinal: 2),
+    record("event_msg", ["type": "token_count", "info": ["last_token_usage": ["total_tokens": 999999]]], ordinal: 3),
+    record("event_msg", ["type": "task_complete", "last_agent_message": "Parent reply"], ordinal: 19),
+    record("event_msg", ["type": "task_started", "model_context_window": 475000,
+                        "turn_attribution": ["parent_turn_id": "parent-turn"]], ordinal: 21),
+    record("token_usage_record", ["thread_id": "worker", "usage": ["total_tokens": 1234]], ordinal: 22)])
+result = reader.scan(now: now)
+let child = result.first { $0.id == "worker" }!
+check(child.isSubagent && child.parentID == "parent", "Worker retains its own identity and explicit parent")
+check(child.state == .working && child.contextUsed == 1234 && child.lastMessage == nil, "Inherited parent state and context never become worker data")
+check(child.agentLabel == "Curie · check tests", "Worker name and task path are readable without guessing")
+var groups = CodexSessionReader.groups(result)
+check(groups.count == 2 && groups.first { $0.root.id == "parent" }?.agents.count == 1, "Same project does not merge independent chats")
+check(groups.first { $0.root.id == "parent" }?.state == .working, "Completed parent stays active while worker runs")
+let grandchild = try fixture("grandchild", [
+    record("session_meta", ["id": "grandchild", "thread_source": "subagent", "parent_thread_id": "worker", "agent_role": "Review"]),
+    event("task_started", ["turn_attribution": ["parent_turn_id": "worker-turn"]]),
+    record("response_item", ["type": "function_call", "call_id": "question", "name": "request_user_input"])])
+groups = CodexSessionReader.groups(reader.scan(now: now))
+let team = groups.first { $0.root.id == "parent" }!
+check(team.agents.count == 2 && team.state == .waiting && team.agents[0].id == "grandchild", "Nested worker belongs to root and waiting agents appear first")
+let orphan = try fixture("orphan", [
+    record("session_meta", ["id": "orphan", "thread_source": "subagent", "parent_thread_id": "missing"]),
+    event("task_started")])
+groups = CodexSessionReader.groups(reader.scan(now: now))
+check(groups.contains { $0.root.id == "orphan" && $0.root.isSubagent }, "Missing parent leaves a standalone labelled worker")
+var cycleA = CodexSessionSnapshot(id: "cycle-a", title: "A")
+cycleA.isSubagent = true; cycleA.parentID = "cycle-b"
+var cycleB = CodexSessionSnapshot(id: "cycle-b", title: "B")
+cycleB.isSubagent = true; cycleB.parentID = "cycle-a"
+check(CodexSessionReader.groups([cycleA, cycleB]).count == 2, "Cycles never loop or hide workers")
+let handle = try FileHandle(forWritingTo: worker)
+try handle.seekToEnd()
+try handle.write(contentsOf: event("task_complete"))
+try handle.close()
+try fm.removeItem(at: grandchild)
+groups = CodexSessionReader.groups(reader.scan(now: now))
+check(groups.first { $0.root.id == "parent" }?.state == .done, "Team finishes only after parent and workers finish")
+print("PASS: reader regressions, duplicate IDs, worker identity, inherited history, context, parent grouping, nested agents, waiting state, orphan handling, cycles and team completion")
 if CommandLine.arguments.contains("--live") {
     let live = CodexSessionReader(home: fm.homeDirectoryForCurrentUser.appendingPathComponent(".codex"))
     let chats = live.scan()
     check(!chats.isEmpty, "Live local chats should be present")
     check(Set(chats.map { $0.id }).count == chats.count, "Live local chat IDs must be unique")
     for chat in chats {
-        print("LIVE: \(chat.title) | \(chat.state) | \(chat.contextUsed.map(String.init) ?? "unknown")/\(chat.contextWindow.map(String.init) ?? "unknown")")
+        print("LIVE: \(chat.isSubagent ? "AGENT " + chat.agentLabel : chat.title) | \(chat.state) | parent=\(chat.parentID ?? "none") | \(chat.contextUsed.map(String.init) ?? "unknown")/\(chat.contextWindow.map(String.init) ?? "unknown")")
     }
 }

@@ -143,8 +143,8 @@ NotchApp reads the logs in `~/.codex/sessions` (or `$CODEX_HOME/sessions` if tha
 environment variable is set).
 
 - Shows up to 20 recent chats from the last 7 days: title, status, latest reply
-  and model. Internal reviews, subagents and imported Claude histories without
-  new Codex turns are excluded.
+  and model. Subagents are grouped under their parent chat. Internal reviews
+  and imported Claude histories without new Codex turns are excluded.
 - Reads new log records every 2 seconds, keeping its position in each file.
 - Context appears as **`42% · 200k/475k`**, using the latest request's usage and
   the context window reported by that session. Cumulative lifetime usage is
@@ -156,6 +156,10 @@ environment variable is set).
 - The **Codex** button at the bottom toggles monitoring. The cross hides a card
   until the chat becomes active again; restarting the app reloads the list.
 - If several log files belong to the same chat, one card shows the latest state.
+
+Expand **«Агенты: N»** (Agents: N) below a chat to see its workers, names, roles and states. The project is a shared label; independent chats in the same folder remain separate. Nested workers appear in one list beneath the original chat. If a parent is unavailable, its worker remains a standalone card with an explanation.
+
+Each worker has its own context usage; its tokens are not added to the parent's context. Completion notifications apply to the whole task; a worker waiting for an answer is reflected in the group status.
 
 Works with local desktop/CLI logs. Cloud chats that have not been saved on this
 computer are not discovered. The log format is internal to Codex and may change.

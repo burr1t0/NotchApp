@@ -19,6 +19,26 @@ struct ClaudeSession: Identifiable {
     var toolCount = 0
     var isCodex = false
     var codexModel: String?
+    var codexProjectName: String?
+    var codexParentID: String?
+    var isCodexSubagent = false
+    var codexParentUnavailable = false
+    var codexAgents: [ClaudeSession] = []
+
+    var agentSummary: String {
+        let working = codexAgents.filter { $0.state == .working }.count
+        let waiting = codexAgents.filter { $0.state == .waiting }.count
+        let done = codexAgents.filter { $0.state == .done }.count
+        let idle = codexAgents.filter { $0.state == .idle }.count
+        var parts = ["Агенты: \(codexAgents.count)"]
+        if working > 0 { parts.append("работают: \(working)") }
+        if waiting > 0 { parts.append("ждут: \(waiting)") }
+        if working == 0 && waiting == 0 {
+            if done > 0 { parts.append("готово: \(done)") }
+            if idle > 0 { parts.append("нет событий: \(idle)") }
+        }
+        return parts.joined(separator: " · ")
+    }
     /// Current usage as a percentage of the session's reported window.
     var contextPercent: Double?
     var contextWindow: Int?
@@ -149,6 +169,10 @@ final class ClaudeMonitor: ObservableObject {
 
     var needsAttention: Bool { !pending.isEmpty || sessions.contains { $0.state == .waiting } }
 
+    func session(withID id: String) -> ClaudeSession? {
+        sessions.flatMap { [$0] + $0.codexAgents }.first { $0.id == id }
+    }
+
     init() {
         soundsEnabled = UserDefaults.standard.object(forKey: "claudeSounds") as? Bool ?? true
         keepAwake = UserDefaults.standard.bool(forKey: "claudeKeepAwake")
@@ -197,12 +221,14 @@ final class ClaudeMonitor: ObservableObject {
                                   uniquingKeysWith: { $0.updated >= $1.updated ? $0 : $1 })
         var changedToDone = false
         var changedToWaiting = false
-        let mapped = snapshots.compactMap { snapshot -> ClaudeSession? in
+        func makeSession(_ snapshot: CodexSessionSnapshot) -> ClaudeSession {
             let id = "codex:" + snapshot.id
-            if let dismissed = dismissedCodex[id], snapshot.updated <= dismissed { return nil }
-            var session = ClaudeSession(id: id, project: snapshot.title, state: .idle,
+            var session = ClaudeSession(id: id, project: snapshot.isSubagent ? snapshot.agentLabel : snapshot.title, state: .idle,
                                         detail: snapshot.detail, updated: snapshot.updated)
             session.isCodex = true
+            session.isCodexSubagent = snapshot.isSubagent
+            session.codexParentID = snapshot.parentID.map { "codex:" + $0 }
+            session.codexProjectName = snapshot.cwd.isEmpty ? nil : (snapshot.cwd as NSString).lastPathComponent
             session.codexModel = snapshot.model
             session.toolCount = snapshot.toolCount
             session.startedAt = snapshot.startedAt
@@ -217,7 +243,26 @@ final class ClaudeMonitor: ObservableObject {
             case .done: session.state = .done
             case .idle: session.state = .idle
             }
-            if codexLoaded, let old = previous[id], Date().timeIntervalSince(snapshot.updated) < 30 {
+            return session
+        }
+        let mapped = CodexSessionReader.groups(snapshots).compactMap { group -> ClaudeSession? in
+            var session = makeSession(group.root)
+            session.codexParentUnavailable = group.root.isSubagent
+            let ownState = session.state
+            let id = session.id
+            if let dismissed = dismissedCodex[id], group.updated <= dismissed { return nil }
+            session.codexAgents = group.agents.map(makeSession)
+            session.updated = group.updated
+            switch group.state {
+            case .working: session.state = .working
+            case .waiting: session.state = .waiting
+            case .done: session.state = .done
+            case .idle: session.state = .idle
+            }
+            if session.state != ownState {
+                session.detail = session.state == .waiting ? "Агент ждёт ответа в Codex" : "Агенты продолжают работу"
+            }
+            if codexLoaded, let old = previous[id], Date().timeIntervalSince(group.updated) < 30 {
                 changedToDone = changedToDone || (session.state == .done && old.state != .done)
                 changedToWaiting = changedToWaiting || (session.state == .waiting && old.state != .waiting)
             }
@@ -268,7 +313,9 @@ final class ClaudeMonitor: ObservableObject {
     }
 
     private func updateKeepAwake() {
-        let shouldHold = keepAwake && sessions.contains { $0.state == .working || (!$0.isCodex && $0.state == .waiting) }
+        let shouldHold = keepAwake && sessions.contains {
+            $0.state == .working || $0.codexAgents.contains { $0.state == .working } || (!$0.isCodex && $0.state == .waiting)
+        }
         if shouldHold, awakeAssertion == 0 {
             IOPMAssertionCreateWithName(
                 kIOPMAssertPreventUserIdleSystemSleep as CFString,
@@ -285,7 +332,7 @@ final class ClaudeMonitor: ObservableObject {
 
     private func isCodexEvent(_ event: ClaudeEvent) -> Bool {
         let file = event.transcriptPath.map { ($0 as NSString).lastPathComponent } ?? ""
-        return file.hasPrefix("rollout-") || sessions.contains { $0.id == "codex:" + event.sessionID }
+        return file.hasPrefix("rollout-") || session(withID: "codex:" + event.sessionID) != nil
     }
 
     private func handle(_ event: ClaudeEvent) {

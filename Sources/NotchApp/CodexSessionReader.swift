@@ -18,7 +18,33 @@ struct CodexSessionSnapshot {
     var toolCount = 0
     var hasLocalTurn = false
     var isUserSession = true
+    var isSubagent = false
+    var parentID: String?
+    var agentNickname: String?
+    var agentRole: String?
+    var agentPath: String?
+    var historyStartOrdinal: Int?
     var pendingCalls = Set<String>()
+
+    var agentLabel: String {
+        let role = agentRole ?? agentPath.map { ($0 as NSString).lastPathComponent.replacingOccurrences(of: "_", with: " ") }
+        return [agentNickname, role].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · ").nonEmpty ?? "Агент Codex"
+    }
+}
+
+private extension String {
+    var nonEmpty: String? { isEmpty ? nil : self }
+}
+
+struct CodexSessionGroup {
+    let root: CodexSessionSnapshot
+    var agents: [CodexSessionSnapshot] = []
+    var updated: Date { agents.reduce(root.updated) { max($0, $1.updated) } }
+    var state: CodexSessionSnapshot.State {
+        if root.state == .waiting || agents.contains(where: { $0.state == .waiting }) { return .waiting }
+        if root.state == .working || agents.contains(where: { $0.state == .working }) { return .working }
+        return root.state
+    }
 }
 
 /// Owned by one background queue. Keeps a byte cursor per file, including an
@@ -82,7 +108,35 @@ final class CodexSessionReader {
             if let existing = result[snapshot.id], existing.updated >= snapshot.updated { continue }
             result[snapshot.id] = snapshot
         }
-        return Array(result.values.sorted { $0.updated > $1.updated }.prefix(20))
+        // Limit parent tasks, not individual agents, so a team cannot displace
+        // its own parent or be cut into apparently unrelated chats.
+        return Self.groups(Array(result.values)).prefix(20).flatMap { [$0.root] + $0.agents }
+    }
+
+    static func groups(_ snapshots: [CodexSessionSnapshot]) -> [CodexSessionGroup] {
+        let byID = Dictionary(snapshots.map { ($0.id, $0) }, uniquingKeysWith: { $0.updated >= $1.updated ? $0 : $1 })
+        var grouped: [String: CodexSessionGroup] = [:]
+        for snapshot in byID.values {
+            var root = snapshot
+            var visited: Set<String> = [snapshot.id]
+            while root.isSubagent, let parentID = root.parentID, let parent = byID[parentID] {
+                // Malformed ancestry stays separate rather than hiding cards.
+                guard visited.insert(parentID).inserted else { root = snapshot; break }
+                root = parent
+            }
+            var group = grouped[root.id] ?? CodexSessionGroup(root: root)
+            if root.id != snapshot.id { group.agents.append(snapshot) }
+            grouped[root.id] = group
+        }
+        return grouped.values.map { group in
+            var group = group
+            group.agents.sort {
+                let left = $0.state == .waiting ? 0 : $0.state == .working ? 1 : 2
+                let right = $1.state == .waiting ? 0 : $1.state == .working ? 1 : 2
+                return left == right ? ($0.updated == $1.updated ? $0.id < $1.id : $0.updated > $1.updated) : left < right
+            }
+            return group
+        }.sorted { $0.updated == $1.updated ? $0.root.id < $1.root.id : $0.updated > $1.updated }
     }
 
     private func readTitles() -> [String: String] {
@@ -149,20 +203,39 @@ final class CodexSessionReader {
         guard let json = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
               let kind = json["type"] as? String, let p = json["payload"] as? [String: Any] else { return }
         if kind == "session_meta" {
+            // The first header owns this file. Forked histories can contain
+            // the parent's session_meta after the child's own header.
+            guard snapshot == nil else { return }
             guard let id = (p["id"] ?? p["session_id"]) as? String else { return }
-            var s = snapshot ?? CodexSessionSnapshot(id: id, title: "Чат Codex")
+            var s = CodexSessionSnapshot(id: id, title: "Чат Codex")
             s.cwd = p["cwd"] as? String ?? s.cwd
-            // Guardian reviews and subagents are implementation details, not
-            // separate user chats. Imported Claude histories have no live turn.
             let source = p["source"] as? String
             let threadSource = p["thread_source"] as? String
-            s.isUserSession = !(p["source"] is [String: Any])
+            let subagent = (p["source"] as? [String: Any])?["subagent"] as? [String: Any]
+            let spawn = subagent?["thread_spawn"] as? [String: Any]
+            s.isSubagent = threadSource == "subagent" || spawn != nil
+            s.parentID = (p["parent_thread_id"] as? String) ?? (spawn?["parent_thread_id"] as? String)
+            if s.parentID == id { s.parentID = nil }
+            s.agentNickname = p["agent_nickname"] as? String ?? spawn?["agent_nickname"] as? String
+            s.agentRole = p["agent_role"] as? String ?? spawn?["agent_role"] as? String
+            s.agentPath = p["agent_path"] as? String ?? spawn?["agent_path"] as? String
+            s.historyStartOrdinal = p["subagent_history_start_ordinal"] as? Int
+            // Keep actual workers; automatic approval reviews stay hidden.
+            s.isUserSession = threadSource != "guardian_review" && subagent?["other"] as? String != "guardian" && (s.isSubagent || (!(p["source"] is [String: Any])
                 && (threadSource == nil || threadSource == "user")
-                && (source == nil || ["cli", "vscode", "exec", "appServer"].contains(source!))
+                && (source == nil || ["cli", "vscode", "exec", "appServer"].contains(source!))))
             snapshot = s
             return
         }
         guard var s = snapshot, s.isUserSession else { return }
+        if let start = s.historyStartOrdinal, let ordinal = json["ordinal"] as? Int, ordinal < start { return }
+        // With no explicit boundary, wait for the worker's own turn before
+        // treating inherited tool calls and usage as its current activity.
+        if s.isSubagent, !s.hasLocalTurn {
+            guard kind == "event_msg", p["type"] as? String == "task_started" else { return }
+            if let attribution = p["turn_attribution"] as? [String: Any],
+               attribution["parent_turn_id"] == nil || attribution["parent_turn_id"] is NSNull { return }
+        }
         if kind == "turn_context" {
             s.model = p["model"] as? String ?? s.model
             s.cwd = p["cwd"] as? String ?? s.cwd
@@ -179,6 +252,7 @@ final class CodexSessionReader {
                 s.detail = "Думает…"
                 s.updated = timestamp
                 s.startedAt = date(p["started_at"]) ?? timestamp
+                s.updated = max(s.updated, s.startedAt ?? timestamp)
                 s.toolCount = 0
                 s.pendingCalls.removeAll()
                 if let w = p["model_context_window"] as? Int, w > 0 { s.contextWindow = w }
@@ -212,6 +286,11 @@ final class CodexSessionReader {
                     applyItem(item, timestamp: timestamp, session: &s)
                 }
             default: break
+            }
+        } else if kind == "token_usage_record" {
+            if let thread = p["thread_id"] as? String, thread != s.id { return }
+            if let usage = p["usage"] as? [String: Any], let used = usage["total_tokens"] as? Int, used >= 0 {
+                s.contextUsed = used
             }
         } else if kind == "response_item" {
             let timestamp = date(json["timestamp"]) ?? s.updated

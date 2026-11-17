@@ -16,7 +16,7 @@ struct ClaudeView: View {
             } else if let request = monitor.pending.first {
                 PermissionCard(monitor: monitor, request: request, more: monitor.pending.count - 1)
                     .id(request.id)   // fresh question state per request
-            } else if let id = openedSessionID, let session = monitor.sessions.first(where: { $0.id == id }) {
+            } else if let id = openedSessionID, let session = monitor.session(withID: id) {
                 SessionDetail(monitor: monitor, session: session) { openedSessionID = nil }
             } else if monitor.sessions.isEmpty {
                 Spacer()
@@ -29,9 +29,9 @@ struct ClaudeView: View {
                 ScrollView {
                     VStack(spacing: 4) {
                         ForEach(monitor.sessions) { session in
-                            SessionCard(session: session,
-                                        open: { openedSessionID = session.id },
-                                        dismiss: { monitor.dismiss(session) })
+                            SessionGroupCard(session: session,
+                                             open: { openedSessionID = $0.id },
+                                             dismiss: { monitor.dismiss(session) })
                         }
                     }
                 }
@@ -306,15 +306,59 @@ struct PermissionCard: View {
 }
 
 /// A session row with a close button that appears on hover.
+private struct SessionGroupCard: View {
+    let session: ClaudeSession
+    let open: (ClaudeSession) -> Void
+    let dismiss: () -> Void
+    @State private var expanded = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            SessionCard(session: session, open: { open(session) }, dismiss: dismiss, compact: expanded)
+            if !session.codexAgents.isEmpty {
+                Button { expanded.toggle() } label: {
+                    HStack(spacing: 5) {
+                        Image(systemName: expanded ? "chevron.down" : "chevron.right")
+                            .font(.system(size: 8, weight: .semibold))
+                        Text(session.agentSummary).lineLimit(1)
+                        Spacer(minLength: 0)
+                    }
+                    .font(.system(size: 9, weight: .medium))
+                    .foregroundStyle(session.codexAgents.contains { $0.state == .waiting } ? Color.orange : Color.cyan)
+                    .padding(.horizontal, 8).padding(.vertical, 4)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .help(expanded ? "Свернуть агентов этого чата" : "Показать агентов этого чата")
+                .accessibilityLabel(session.agentSummary)
+                .accessibilityValue(expanded ? "Развёрнуто" : "Свёрнуто")
+                if expanded {
+                    VStack(spacing: 3) {
+                        ForEach(session.codexAgents) { agent in
+                            Button { open(agent) } label: { SessionRow(session: agent) }
+                                .buttonStyle(.plain)
+                        }
+                    }
+                    .padding(.leading, 12)
+                    .overlay(alignment: .leading) {
+                        Rectangle().fill(Color.cyan.opacity(0.3)).frame(width: 1).padding(.leading, 4)
+                    }
+                }
+            }
+        }
+    }
+}
+
 private struct SessionCard: View {
     let session: ClaudeSession
     let open: () -> Void
     let dismiss: () -> Void
+    var compact = false
     @State private var isHovering = false
 
     var body: some View {
         ZStack(alignment: .topTrailing) {
-            Button(action: open) { SessionRow(session: session) }
+            Button(action: open) { SessionRow(session: session, compact: compact) }
                 .buttonStyle(.plain)
             if isHovering {
                 Button(action: dismiss) {
@@ -335,6 +379,7 @@ private struct SessionCard: View {
 
 private struct SessionRow: View {
     let session: ClaudeSession
+    var compact = false
 
     var body: some View {
         HStack(spacing: 8) {
@@ -347,16 +392,29 @@ private struct SessionRow: View {
                         .font(.system(size: 11, weight: .semibold))
                         .foregroundStyle(.white)
                         .lineLimit(1)
-                    Text(session.isCodex ? "Codex" : "Claude")
+                    Text(session.isCodexSubagent ? "Агент" : session.isCodex ? "Codex" : "Claude")
                         .font(.system(size: 8, weight: .medium))
                         .foregroundStyle(session.isCodex ? Color.cyan : Color.claudeOrange)
                 }
-                Text(session.detail)
-                    .font(.system(size: 10))
-                    .foregroundStyle(.white.opacity(0.55))
-                    .lineLimit(1)
-                planLine
-                stats
+                if !session.codexAgents.isEmpty, let project = session.codexProjectName {
+                    Text("Проект · " + project)
+                        .font(.system(size: 9))
+                        .foregroundStyle(.white.opacity(0.4))
+                        .lineLimit(1)
+                } else if session.codexParentUnavailable {
+                    Text("Родительский чат недоступен")
+                        .font(.system(size: 9))
+                        .foregroundStyle(.white.opacity(0.4))
+                        .lineLimit(1)
+                }
+                if !compact {
+                    Text(session.detail)
+                        .font(.system(size: 10))
+                        .foregroundStyle(.white.opacity(0.55))
+                        .lineLimit(1)
+                    planLine
+                    stats
+                }
             }
             Spacer(minLength: 0)
         }
@@ -565,7 +623,7 @@ private struct SessionDetail: View {
             .background(RoundedRectangle(cornerRadius: 6).fill(Color.white.opacity(0.07)))
 
             if session.isCodex {
-                Text(session.codexModel ?? "Codex · локальный чат")
+                Text(session.codexModel ?? (session.isCodexSubagent ? "Codex · субагент" : "Codex · локальный чат"))
                     .font(.system(size: 9))
                     .foregroundStyle(.white.opacity(0.5))
             }
